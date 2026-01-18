@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VentiGuard - Real-time Environment Monitoring</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+</head>
+<body>
+    <!-- Login Page -->
+    <div id="login-page" class="page active">
+        <div class="login-container">
+            <div class="login-box">
+                <div class="logo">
+                    <i class="fas fa-shield-virus"></i>
+                    <h1>VentiGuard</h1>
+                    <p>Environmental Monitoring System</p>
+                </div>
+                
+                <div class="login-form">
+                    <h2>Welcome Back</h2>
+                    <div id="login-error" class="error-message"></div>
+                    
+                    <div class="form-group">
+                        <input type="email" id="email" placeholder="Email Address" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <input type="password" id="password" placeholder="Password" required>
+                    </div>
+                    
+                    <button id="login-btn" class="btn-primary">
+                        <i class="fas fa-sign-in-alt"></i> Sign In
+                    </button>
+                    
+                    <div class="divider">
+                        <span>or</span>
+                    </div>
+                    
+                    <button id="google-login-btn" class="btn-google">
+                        <i class="fab fa-google"></i> Sign in with Google
+                    </button>
+                    
+                    <div class="signup-link">
+                        Don't have an account? <a href="#" id="show-signup">Sign up</a>
+                    </div>
+                </div>
+                
+                <div class="login-form signup-form" style="display: none;">
+                    <h2>Create Account</h2>
+                    <div id="signup-error" class="error-message"></div>
+                    
+                    <div class="form-group">
+                        <input type="email" id="signup-email" placeholder="Email Address" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <input type="password" id="signup-password" placeholder="Password (min. 6 characters)" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <input type="password" id="confirm-password" placeholder="Confirm Password" required>
+                    </div>
+                    
+                    <button id="signup-btn" class="btn-primary">
+                        <i class="fas fa-user-plus"></i> Create Account
+                    </button>
+                    
+                    <div class="signup-link">
+                        Already have an account? <a href="#" id="show-login">Sign in</a>
+                    </div>
+                </div>
+                
+                <div class="demo-note">
+                    <i class="fas fa-info-circle"></i>
+                    <span>Demo: Use any valid email/password to sign up</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Dashboard -->
+    <div id="dashboard-page" class="page">
+        <!-- Header -->
+        <header class="dashboard-header">
+            <div class="header-left">
+                <div class="logo-small">
+                    <i class="fas fa-shield-virus"></i>
+                    <span>VentiGuard</span>
+                </div>
+                
+                <div class="node-selector">
+                    <select id="node-select">
+                        <option value="">Select a node to monitor...</option>
+                    </select>
+                </div>
+                
+                <div class="overall-status">
+                    <div class="status-indicator safe" id="overall-status-indicator"></div>
+                    <span id="overall-status-text">--</span>
+                </div>
+            </div>
+            
+            <div class="header-right">
+                <div class="time-display">
+                    <i class="far fa-clock"></i>
+                    <span id="current-time">--:--:--</span>
+                </div>
+                
+                <button id="logout-btn" class="btn-logout">
+                    <i class="fas fa-sign-out-alt"></i> Logout
+                </button>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="dashboard-content">
+            <!-- Alerts Panel -->
+            <section class="alerts-panel">
+                <h3><i class="fas fa-bell"></i> Active Alerts</h3>
+                <div class="alerts-container" id="alerts-container">
+                    <div class="no-alerts" id="no-alerts">
+                        <i class="fas fa-check-circle"></i>
+                        <p>No active alerts. All systems are normal.</p>
+                    </div>
+                    <!-- Alerts will be inserted here -->
+                </div>
+            </section>
+
+            <!-- Sensor Cards Grid -->
+            <div class="sensor-grid">
+                <div class="sensor-card temp">
+                    <div class="card-header">
+                        <div class="card-title">
+                            <i class="fas fa-thermometer-half"></i>
+                            <h3>Temperature</h3>
+                        </div>
+                        <div class="status-indicator safe" id="temp-status-indicator"></div>
+                    </div>
+                    <div class="card-value">
+                        <span id="temperature-value">--</span>
+                        <span class="card-unit">°C</span>
+                    </div>
+                    <div class="card-footer">
+                        <span id="temp-status-text">--</span>
+                    </div>
+                </div>
+
+                <div class="sensor-card hum">
+                    <div class="card-header">
+                        <div class="card-title">
+                            <i class="fas fa-tint"></i>
+                            <h3>Humidity</h3>
+                        </div>
+                        <div class="status-indicator safe" id="hum-status-indicator"></div>
+                    </div>
+                    <div class="card-value">
+                        <span id="humidity-value">--</span>
+                        <span class="card-unit">%</span>
+                    </div>
+                    <div class="card-footer">
+                        <span id="hum-status-text">--</span>
+                    </div>
+                </div>
+
+                <div class="sensor-card air">
+                    <div class="card-header">
+                        <div class="card-title">
+                            <i class="fas fa-wind"></i>
+                            <h3>Air Quality</h3>
+                        </div>
+                        <div class="status-indicator safe" id="air-status-indicator"></div>
+                    </div>
+                    <div class="card-value">
+                        <span id="air-quality-value">--</span>
+                        <span class="card-unit">PPM</span>
+                    </div>
+                    <div class="card-footer">
+                        <span id="air-status-text">--</span>
+                    </div>
+                </div>
+
+                <div class="sensor-card crowd">
+                    <div class="card-header">
+                        <div class="card-title">
+                            <i class="fas fa-users"></i>
+                            <h3>Occupancy</h3>
+                        </div>
+                        <div class="status-indicator safe" id="crowd-status-indicator"></div>
+                    </div>
+                    <div class="card-value">
+                        <span id="crowd-value">--</span>
+                        <span class="card-unit">Persons</span>
+                    </div>
+                    <div class="card-footer">
+                        <span id="crowd-status-text">--</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Risk Assessment Section -->
+            <section class="risk-section">
+                <div class="risk-card">
+                    <div class="risk-header">
+                        <h3><i class="fas fa-exclamation-triangle"></i> Risk Assessment</h3>
+                        <div class="risk-badge safe" id="risk-badge">--</div>
+                    </div>
+                    
+                    <div class="risk-score-display">
+                        <div class="risk-gauge">
+                            <div class="gauge-container">
+                                <div class="gauge-background"></div>
+                                <div class="gauge-cover"></div>
+                                <div class="gauge-needle" id="gauge-needle"></div>
+                            </div>
+                            <div class="risk-score">
+                                <span id="risk-score-value">0</span>
+                                <small>Risk Score</small>
+                            </div>
+                        </div>
+                        
+                        <div class="risk-distribution">
+                            <h4>Risk Factors</h4>
+                            <div class="distribution-bars">
+                                <div class="distribution-bar" data-factor="air">
+                                    <span>Air Quality</span>
+                                    <div class="bar-container">
+                                        <div class="bar-fill" id="air-factor-bar"></div>
+                                    </div>
+                                    <span id="air-factor-value">40%</span>
+                                </div>
+                                <div class="distribution-bar" data-factor="hum">
+                                    <span>Humidity</span>
+                                    <div class="bar-container">
+                                        <div class="bar-fill" id="hum-factor-bar"></div>
+                                    </div>
+                                    <span id="hum-factor-value">30%</span>
+                                </div>
+                                <div class="distribution-bar" data-factor="temp">
+                                    <span>Temperature</span>
+                                    <div class="bar-container">
+                                        <div class="bar-fill" id="temp-factor-bar"></div>
+                                    </div>
+                                    <span id="temp-factor-value">20%</span>
+                                </div>
+                                <div class="distribution-bar" data-factor="crowd">
+                                    <span>Occupancy</span>
+                                    <div class="bar-container">
+                                        <div class="bar-fill" id="crowd-factor-bar"></div>
+                                    </div>
+                                    <span id="crowd-factor-value">10%</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="action-card">
+                        <h4><i class="fas fa-lightbulb"></i> Recommended Action</h4>
+                        <p id="action-message">Select a node to see recommendations</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Map Section -->
+            <section class="map-section">
+                <div class="map-header">
+                    <h3><i class="fas fa-map-marker-alt"></i> Monitoring Locations</h3>
+                    <div class="map-controls">
+                        <button id="locate-me" class="btn-map-control">
+                            <i class="fas fa-location-arrow"></i> My Location
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="map-container">
+                    <div id="map"></div>
+                    <div class="map-sidebar">
+                        <h4><i class="fas fa-building"></i> Available Nodes</h4>
+                        <div id="node-list">
+                            <div class="empty-nodes">
+                                <i class="fas fa-map-pin"></i>
+                                <p>Click on map markers to view nodes</p>
+                                <small>Colored pins show locations with monitoring devices</small>
+                            </div>
+                        </div>
+                        
+                        <div class="map-info">
+                            <h4><i class="fas fa-info-circle"></i> Map Legend</h4>
+                            <div class="legend">
+                                <div class="legend-item">
+                                    <div class="legend-color safe"></div>
+                                    <span>Safe Status</span>
+                                </div>
+                                <div class="legend-item">
+                                    <div class="legend-color warn"></div>
+                                    <span>Warning Status</span>
+                                </div>
+                                <div class="legend-item">
+                                    <div class="legend-color danger"></div>
+                                    <span>Danger Status</span>
+                                </div>
+                                <div class="legend-item">
+                                    <div class="legend-color user"></div>
+                                    <span>Your Location</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Charts Section -->
+            <section class="charts-section">
+                <div class="chart-card">
+                    <div class="chart-header">
+                        <h3><i class="fas fa-chart-line"></i> Risk Trend</h3>
+                        <select id="time-range">
+                            <option value="5">Last 5 min</option>
+                            <option value="15">Last 15 min</option>
+                            <option value="30" selected>Last 30 min</option>
+                            <option value="60">Last hour</option>
+                        </select>
+                    </div>
+                    <canvas id="risk-chart"></canvas>
+                </div>
+                
+                <div class="chart-card">
+                    <div class="chart-header">
+                        <h3><i class="fas fa-chart-bar"></i> Sensor History</h3>
+                    </div>
+                    <canvas id="sensor-chart"></canvas>
+                </div>
+            </section>
+
+            <!-- History Log -->
+            <section class="history-section">
+                <div class="history-header">
+                    <h3><i class="fas fa-history"></i> Recent Activity</h3>
+                    <button id="clear-history" class="btn-secondary">
+                        <i class="fas fa-trash"></i> Clear Log
+                    </button>
+                </div>
+                
+                <div class="history-table-container">
+                    <table class="history-table">
+                        <thead>
+                            <tr>
+                                <th>Time</th>
+                                <th>Location</th>
+                                <th>Node</th>
+                                <th>Temp (°C)</th>
+                                <th>Humidity (%)</th>
+                                <th>Air Quality</th>
+                                <th>Occupancy</th>
+                                <th>Risk Score</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="history-table-body">
+                            <!-- History rows will be inserted here -->
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer class="dashboard-footer">
+            <div class="footer-content">
+                <div class="footer-logo">
+                    <i class="fas fa-shield-virus"></i>
+                    <span>VentiGuard Monitoring System</span>
+                </div>
+                <div class="footer-info">
+                    <span>ESP32 + Firebase Real-time Monitoring</span>
+                    <span>•</span>
+                    <span>Last Update: <span id="last-update-time">--:--:--</span></span>
+                </div>
+            </div>
+        </footer>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
