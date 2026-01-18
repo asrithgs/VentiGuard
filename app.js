@@ -34,6 +34,7 @@ const loginBtn = document.getElementById('login-btn');
 const signupBtn = document.getElementById('signup-btn');
 const googleLoginBtn = document.getElementById('google-login-btn');
 const logoutBtn = document.getElementById('logout-btn');
+const emailSettingsBtn = document.getElementById('email-settings-btn');
 const showSignupLink = document.getElementById('show-signup');
 const showLoginLink = document.getElementById('show-login');
 const nodeSelect = document.getElementById('node-select');
@@ -46,8 +47,17 @@ auth.onAuthStateChanged((user) => {
         currentUser = user;
         showPage(dashboardPage);
         initializeDashboard();
+        
+        // Update email settings with user info
+        if (emailSettingsBtn) {
+            emailSettingsBtn.style.display = 'flex';
+        }
     } else {
+        currentUser = null;
         showPage(loginPage);
+        if (emailSettingsBtn) {
+            emailSettingsBtn.style.display = 'none';
+        }
     }
 });
 
@@ -137,6 +147,11 @@ logoutBtn.addEventListener('click', () => {
     auth.signOut();
 });
 
+// Email Settings Button
+if (emailSettingsBtn) {
+    emailSettingsBtn.addEventListener('click', showEmailSettingsModal);
+}
+
 // Helper functions
 function showPage(page) {
     loginPage.classList.remove('active');
@@ -184,6 +199,9 @@ function initializeDashboard() {
     
     // Then load available locations
     loadAvailableLocations();
+    
+    // Start background monitoring for email alerts
+    startBackgroundMonitoring();
 }
 
 function updateTime() {
@@ -389,6 +407,26 @@ function addLocationMarker(locationKey, coordinates, nodes) {
         popupContent += `<div class="popup-detail"><span class="label">...</span> <span class="value">+${Object.keys(nodes).length - 3} more</span></div>`;
     }
     
+    // Add email toggle for this location
+    const isAnyEmailEnabled = Object.keys(nodes).some(nodeName => {
+        const nodePath = `${locationKey}/${nodeName}`;
+        return emailService.getNotificationPreference(nodePath).enabled;
+    });
+    
+    popupContent += `
+        <div class="popup-detail">
+            <div class="email-toggle">
+                <label>Email Alerts:</label>
+                <div class="toggle-switch">
+                    <input type="checkbox" id="email-toggle-${locationKey}" 
+                        ${isAnyEmailEnabled ? 'checked' : ''}
+                        onchange="window.toggleEmailNotifications('${locationKey}', this.checked)">
+                    <span class="toggle-slider"></span>
+                </div>
+            </div>
+        </div>
+    `;
+    
     popupContent += `</div>`;
     popupContent += `<button class="btn-primary btn-sm" onclick="window.selectLocation('${locationKey}')" style="margin-top: 10px; width: 100%;">View All Nodes</button>`;
     
@@ -560,23 +598,38 @@ function displayNodesList(locationData) {
         const status = nodeData.risk_level ? nodeData.risk_level.toLowerCase() : 'unknown';
         const temperature = nodeData.temperature ? nodeData.temperature.toFixed(1) : '--';
         const humidity = nodeData.humidity || '--';
+        const airQuality = nodeData.air_quality || '--';
+        const peopleCount = nodeData.ir_count || '0';
+        const riskLevel = nodeData.risk_level || 'NO DATA';
+        
+        // Check email preference for this node
+        const nodePath = `${locationKey}/${nodeName}`;
+        const emailPref = emailService.getNotificationPreference(nodePath);
+        const isEmailEnabled = emailPref.enabled;
         
         html += `
-            <div class="node-item ${status}" onclick="window.selectNode('${locationKey}', '${nodeName}')">
-                <div class="node-header">
+            <div class="node-item ${status}">
+                <div class="node-header" onclick="window.selectNode('${locationKey}', '${nodeName}')">
                     <div class="node-name">
                         <i class="fas fa-microchip"></i>
                         ${nodeName}
                     </div>
                     <div class="node-temp">${temperature}°C</div>
                 </div>
-                <div class="node-details">
+                <div class="node-details" onclick="window.selectNode('${locationKey}', '${nodeName}')">
                     <span><i class="fas fa-tint"></i> Humidity: ${humidity}%</span>
-                    <span><i class="fas fa-wind"></i> Air: ${nodeData.air_quality || '--'} PPM</span>
-                    <span><i class="fas fa-users"></i> People: ${nodeData.ir_count || '0'}</span>
+                    <span><i class="fas fa-wind"></i> Air: ${airQuality}</span>
+                    <span><i class="fas fa-users"></i> People: ${peopleCount}</span>
                 </div>
-                <div class="node-status ${status}">
-                    ${nodeData.risk_level || 'NO DATA'}
+                <div class="node-footer">
+                    <div class="node-status ${status}">
+                        ${riskLevel}
+                    </div>
+                    <div class="email-toggle-btn ${isEmailEnabled ? 'active' : ''}" 
+                         onclick="event.stopPropagation(); window.toggleNodeEmail('${locationKey}', '${nodeName}')">
+                        <i class="fas ${isEmailEnabled ? 'fa-envelope' : 'fa-envelope-slash'}"></i>
+                        <span>${isEmailEnabled ? 'ON' : 'OFF'}</span>
+                    </div>
                 </div>
             </div>
         `;
@@ -848,6 +901,26 @@ function updateNodeMarker(locationKey, nodeName, data) {
             popupContent += `<div class="popup-detail"><span class="label">...</span> <span class="value">+${nodeCount - 3} more</span></div>`;
         }
         
+        // Update email toggle status
+        const isAnyEmailEnabled = Object.keys(nodeMarkers[locationKey].nodes).some(node => {
+            const nodePath = `${locationKey}/${node}`;
+            return emailService.getNotificationPreference(nodePath).enabled;
+        });
+        
+        popupContent += `
+            <div class="popup-detail">
+                <div class="email-toggle">
+                    <label>Email Alerts:</label>
+                    <div class="toggle-switch">
+                        <input type="checkbox" id="email-toggle-${locationKey}" 
+                            ${isAnyEmailEnabled ? 'checked' : ''}
+                            onchange="window.toggleEmailNotifications('${locationKey}', this.checked)">
+                        <span class="toggle-slider"></span>
+                    </div>
+                </div>
+            </div>
+        `;
+        
         popupContent += `</div>`;
         popupContent += `<button class="btn-primary btn-sm" onclick="window.selectLocation('${locationKey}')" style="margin-top: 10px; width: 100%;">View All Nodes</button>`;
         
@@ -1013,8 +1086,8 @@ function updateCharts(data) {
     sensorChart.update();
 }
 
-// Check alerts
-function checkAlerts(data) {
+// Check alerts and send email notifications
+async function checkAlerts(data) {
     const riskLevel = data.risk_level;
     const alertsContainer = document.getElementById('alerts-container');
     const noAlerts = document.getElementById('no-alerts');
@@ -1056,6 +1129,17 @@ function checkAlerts(data) {
                     body: `${riskLevel} at ${nodeName}: ${data.action}`,
                     icon: 'https://cdn-icons-png.flaticon.com/512/206/206875.png'
                 });
+            }
+            
+            // Send email notification if enabled
+            if (currentNode && (riskLevel === 'DANGER' || riskLevel === 'WARN')) {
+                if (emailService.isNotificationEnabled(currentNode)) {
+                    if (riskLevel === 'DANGER') {
+                        await emailService.sendDangerAlert(currentNode, nodeName, locationName, data);
+                    } else if (riskLevel === 'WARN') {
+                        await emailService.sendWarningAlert(currentNode, nodeName, locationName, data);
+                    }
+                }
             }
             
             // Keep only last 5 alerts
@@ -1114,10 +1198,299 @@ function showNotification(message, type = 'info') {
     }, 3000);
 }
 
+// Email Notification Functions
+
+// Global email functions
+window.toggleEmailNotifications = function(locationKey, enabled) {
+    if (!currentUser || !currentUser.email) {
+        showNotification("Please login to enable email notifications", "warn");
+        return;
+    }
+    
+    const nodes = availableLocations[locationKey]?.nodes || {};
+    const userName = currentUser.displayName || currentUser.email.split('@')[0];
+    
+    Object.keys(nodes).forEach(nodeName => {
+        const nodePath = `${locationKey}/${nodeName}`;
+        emailService.setNotificationPreference(nodePath, currentUser.email, enabled, userName);
+    });
+    
+    showNotification(`Email notifications ${enabled ? 'enabled' : 'disabled'} for all nodes at this location`, 
+        enabled ? "success" : "info");
+    
+    // Refresh UI
+    if (availableLocations[locationKey]) {
+        displayNodesList({
+            locationKey,
+            coordinates: availableLocations[locationKey].coordinates,
+            nodes: availableLocations[locationKey].nodes,
+            locationName: availableLocations[locationKey].locationName
+        });
+    }
+    
+    // Update map popup
+    if (nodeMarkers[locationKey]) {
+        const marker = nodeMarkers[locationKey].marker;
+        const currentPopup = marker.getPopup();
+        if (currentPopup) {
+            marker.openPopup(); // This will refresh the popup content
+        }
+    }
+};
+
+window.toggleNodeEmail = function(locationKey, nodeName) {
+    if (!currentUser || !currentUser.email) {
+        showNotification("Please login to enable email notifications", "warn");
+        return;
+    }
+    
+    const nodePath = `${locationKey}/${nodeName}`;
+    const currentPref = emailService.getNotificationPreference(nodePath);
+    const newEnabled = !currentPref.enabled;
+    
+    // Include user name if available
+    const userName = currentUser.displayName || currentUser.email.split('@')[0];
+    
+    emailService.setNotificationPreference(nodePath, currentUser.email, newEnabled, userName);
+    
+    showNotification(`Email notifications ${newEnabled ? 'enabled' : 'disabled'} for ${nodeName}`, 
+        newEnabled ? "success" : "info");
+    
+    // Refresh UI
+    if (availableLocations[locationKey]) {
+        displayNodesList({
+            locationKey,
+            coordinates: availableLocations[locationKey].coordinates,
+            nodes: availableLocations[locationKey].nodes,
+            locationName: availableLocations[locationKey].locationName
+        });
+    }
+};
+
+// Show email settings modal
+function showEmailSettingsModal() {
+    const modal = document.getElementById('email-settings-modal');
+    if (!modal) return;
+    
+    modal.style.display = 'flex';
+    setTimeout(() => {
+        modal.style.opacity = '1';
+    }, 10);
+    
+    // Populate email address if user is logged in
+    const emailInput = document.getElementById('email-notification-address');
+    if (currentUser && currentUser.email) {
+        emailInput.value = currentUser.email;
+        if (currentUser.providerData?.[0]?.providerId === 'google.com') {
+            emailInput.readOnly = true;
+        }
+    }
+    
+    // Populate nodes list
+    populateEmailNodesList();
+    
+    // Add event listeners
+    const closeBtn = modal.querySelector('.close-email-settings');
+    const saveBtn = modal.querySelector('#save-email-settings');
+    const testBtn = modal.querySelector('#test-email-btn');
+    
+    closeBtn.onclick = closeEmailSettingsModal;
+    saveBtn.onclick = saveEmailSettings;
+    testBtn.onclick = sendTestEmail;
+    
+    // Close on backdrop click
+    modal.onclick = function(e) {
+        if (e.target === modal) {
+            closeEmailSettingsModal();
+        }
+    };
+}
+
+function closeEmailSettingsModal() {
+    const modal = document.getElementById('email-settings-modal');
+    modal.style.opacity = '0';
+    setTimeout(() => {
+        modal.style.display = 'none';
+    }, 300);
+}
+
+function populateEmailNodesList() {
+    const nodesList = document.getElementById('email-nodes-list');
+    if (!nodesList) return;
+    
+    nodesList.innerHTML = '';
+    
+    if (Object.keys(availableLocations).length === 0) {
+        nodesList.innerHTML = `
+            <div class="empty-nodes">
+                <i class="fas fa-database"></i>
+                <p>No nodes available</p>
+                <small>Load monitoring data first</small>
+            </div>
+        `;
+        return;
+    }
+    
+    Object.entries(availableLocations).forEach(([locationKey, locationData]) => {
+        Object.keys(locationData.nodes).forEach(nodeName => {
+            const nodePath = `${locationKey}/${nodeName}`;
+            const pref = emailService.getNotificationPreference(nodePath);
+            const nodeStatus = locationData.nodes[nodeName].risk_level || 'SAFE';
+            const temperature = locationData.nodes[nodeName].temperature?.toFixed(1) || '--';
+            
+            const nodeItem = document.createElement('div');
+            nodeItem.className = `email-node-item ${nodeStatus.toLowerCase()}`;
+            nodeItem.innerHTML = `
+                <div class="email-node-info">
+                    <div class="email-node-name">${nodeName}</div>
+                    <div class="email-node-location">${locationData.locationName}</div>
+                    <div class="email-node-status">${temperature}°C • ${nodeStatus}</div>
+                </div>
+                <div class="email-node-toggle">
+                    <label class="toggle-switch">
+                        <input type="checkbox" ${pref.enabled ? 'checked' : ''} 
+                               onchange="updateNodeEmailPreference('${nodePath}', this.checked)">
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+            `;
+            
+            nodesList.appendChild(nodeItem);
+        });
+    });
+}
+
+// Add this global function
+window.updateNodeEmailPreference = function(nodePath, enabled) {
+    if (!currentUser || !currentUser.email) {
+        showNotification("Please login to enable email notifications", "warn");
+        return;
+    }
+    
+    const userName = currentUser.displayName || currentUser.email.split('@')[0];
+    emailService.setNotificationPreference(nodePath, currentUser.email, enabled, userName);
+};
+
+function saveEmailSettings() {
+    if (!currentUser) {
+        showNotification("Please login to save email settings", "warn");
+        return;
+    }
+    
+    const emailInput = document.getElementById('email-notification-address');
+    const newEmail = emailInput ? emailInput.value : currentUser.email;
+    
+    if (!newEmail || !validateEmail(newEmail)) {
+        showNotification("Please enter a valid email address", "error");
+        return;
+    }
+    
+    // Update all enabled preferences with new email
+    Object.keys(emailService.notificationPreferences).forEach(nodePath => {
+        const pref = emailService.getNotificationPreference(nodePath);
+        if (pref.enabled) {
+            emailService.setNotificationPreference(nodePath, newEmail, true, pref.userName);
+        }
+    });
+    
+    emailService.savePreferences();
+    
+    showNotification("Email settings saved successfully", "success");
+    
+    // Close modal
+    closeEmailSettingsModal();
+    
+    // Refresh UI
+    loadAvailableLocations();
+}
+
+function validateEmail(email) {
+    const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return re.test(email);
+}
+
+async function sendTestEmail() {
+    if (!currentUser || !currentUser.email) {
+        showNotification("Please login to send test email", "warn");
+        return;
+    }
+    
+    const emailInput = document.getElementById('email-notification-address');
+    const testEmail = emailInput ? emailInput.value : currentUser.email;
+    
+    if (!testEmail || !validateEmail(testEmail)) {
+        showNotification("Please enter a valid email address", "error");
+        return;
+    }
+    
+    const testBtn = document.getElementById('test-email-btn');
+    const originalText = testBtn.innerHTML;
+    testBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Sending...';
+    testBtn.disabled = true;
+    
+    try {
+        const result = await emailService.testEmail(testEmail, currentUser.displayName);
+        showNotification(result.message, result.success ? "success" : "error");
+    } catch (error) {
+        showNotification("Failed to send test email: " + error.message, "error");
+    } finally {
+        testBtn.innerHTML = originalText;
+        testBtn.disabled = false;
+    }
+}
+
+// Background monitoring for email alerts
+function startBackgroundMonitoring() {
+    // Check every 30 seconds for danger states in subscribed nodes
+    setInterval(() => {
+        if (Object.keys(emailService.notificationPreferences).length > 0) {
+            checkBackgroundAlerts();
+        }
+    }, 30000); // 30 seconds
+}
+
+async function checkBackgroundAlerts() {
+    const nodesToCheck = Object.keys(emailService.notificationPreferences)
+        .filter(nodePath => emailService.isNotificationEnabled(nodePath));
+    
+    for (const nodePath of nodesToCheck) {
+        try {
+            const [locationKey, nodeName] = nodePath.split('/');
+            const nodeRef = database.ref(`ventiguard/${nodePath}`);
+            
+            nodeRef.once('value').then((snapshot) => {
+                const data = snapshot.val();
+                if (data && (data.risk_level === 'DANGER' || data.risk_level === 'WARN')) {
+                    // Check if alert was already sent recently
+                    const pref = emailService.getNotificationPreference(nodePath);
+                    const lastSentTime = pref.lastSent ? new Date(pref.lastSent).getTime() : 0;
+                    const currentTime = new Date().getTime();
+                    
+                    // Different cooldown for different alert types
+                    const cooldown = data.risk_level === 'DANGER' ? 300000 : 600000; // 5 or 10 minutes
+                    
+                    if (currentTime - lastSentTime > cooldown) {
+                        const locationName = getLocationName(locationKey);
+                        
+                        if (data.risk_level === 'DANGER') {
+                            emailService.sendDangerAlert(nodePath, nodeName, locationName, data);
+                        } else {
+                            emailService.sendWarningAlert(nodePath, nodeName, locationName, data);
+                        }
+                    }
+                }
+            });
+        } catch (error) {
+            console.error('Background monitoring error:', error);
+        }
+    }
+}
+
 // Initialize app
 window.addEventListener('load', () => {
     const user = auth.currentUser;
     if (user) {
+        currentUser = user;
         showPage(dashboardPage);
         initializeDashboard();
     } else {
